@@ -1,8 +1,10 @@
 {
   "domain": "benq_projector",
   "name": "BenQ Projector",
-  "version": "1.0",
   "documentation": "None",
+  "dependencies": [],
+  "codeowners": [],
   "requirements": ["pyserial==3.5"],
-  "codeowners": []
+  "version": "1.0",
+  "iot_class": "local_polling"
 }

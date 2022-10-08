@@ -1,8 +1,11 @@
 """Use serial protocol of BenQ projector to obtain state of the projector."""
 # Forked on top of the Acer projector integration! https://github.com/home-assistant/core/tree/dev/homeassistant/components/acer_projector
 # Credits = TrianguloY, CloudBurst, Hikaru, YayMuffins
+from __future__ import annotations
+
 import logging
 import re
+from typing import Any
 
 import serial
 import voluptuous as vol
@@ -11,46 +14,35 @@ from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchEntity
 from homeassistant.const import (
     CONF_FILENAME,
     CONF_NAME,
+    CONF_TIMEOUT,
     STATE_OFF,
     STATE_ON,
     STATE_UNKNOWN,
 )
+from homeassistant.core import HomeAssistant
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+
+from .const import (
+    CONF_BAUDRATE,
+    CONF_WRITE_TIMEOUT,
+    DEFAULT_NAME,
+    DEFAULT_TIMEOUT,
+    DEFAULT_WRITE_TIMEOUT,
+    DEFAULT_BAUDRATE,
+    POWER_STATUS,
+    CURRENT_SOURCE,
+    LAMP_HOURS,
+    LAMP_MODE,
+    MODEL,
+    SYSFW,
+    TEMPERATURE,
+    ICON,
+    CMD_DICT,
+)
 
 _LOGGER = logging.getLogger(__name__)
-
-CONF_BAUDRATE = "baudrate"
-CONF_TIMEOUT = "timeout"
-CONF_WRITE_TIMEOUT = "write_timeout"
-
-DEFAULT_NAME = "BenQ Projector"
-DEFAULT_TIMEOUT = 4
-DEFAULT_WRITE_TIMEOUT = 4
-
-LAMP_MODE = "Lamp Mode"
-
-ICON = "mdi:projector"
-
-INPUT_SOURCE = "Input Source"
-
-LAMP = "Lamp"
-LAMP_HOURS = "Lamp Hours"
-
-MODEL = "Model"
-
-# Commands known to the projector
-#    STATE_OFF: "* 0 IR 002\r",
-CMD_DICT = {
-    LAMP: "\r*pow=?#\r",
-    LAMP_HOURS: "\r*ltim=?#\r",
-    INPUT_SOURCE: "\r*sour=?#\r",
-    LAMP_MODE: "\r*lampm=?#\r",
-    MODEL: "\r*modelname=?#\r",
-    STATE_ON: "\r*pow=on#\r",
-    STATE_OFF: "\r*pow=off#\r",
-}
-
-DEFAULT_BAUDRATE = 115200
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -65,7 +57,12 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 )
 
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
+def setup_platform(
+    hass: HomeAssistant,
+    config: ConfigType,
+    add_entities: AddEntitiesCallback,
+    discovery_info: DiscoveryInfoType | None = None,
+) -> None:
     """Connect with serial port and return BenQ Projector."""
     serial_port = config[CONF_FILENAME]
     baudrate = config[CONF_BAUDRATE]
@@ -78,27 +75,35 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
 
 class BenQSwitch(SwitchEntity):
     """Represents an BenQ Projector as a switch."""
+    _attr_icon = ICON
 
-    def __init__(self, serial_port, baudrate, name, timeout, write_timeout, **kwargs):
-        """Init of the BenQ projector."""
-
+    def __init__(
+        self,
+        serial_port: str,
+        baudrate: int,
+        name: str,
+        timeout: int,
+        write_timeout: int,
+    ) -> None:
+        """Init of the Acer projector."""
         self.ser = serial.Serial(
-            port=serial_port, baudrate=baudrate, timeout=timeout, write_timeout=write_timeout, **kwargs
+            port=serial_port, baudrate=baudrate, timeout=timeout, write_timeout=write_timeout
         )
         self._serial_port = serial_port
         self._baudrate = baudrate
-        self._name = name
-        self._state = False
-        self._available = False
+        self._attr_name = name
         self._attributes = {
+        	POWER_STATUS: STATE_UNKNOWN,
+        	CURRENT_SOURCE: STATE_UNKNOWN,
             LAMP_HOURS: STATE_UNKNOWN,
-            INPUT_SOURCE: STATE_UNKNOWN,
             LAMP_MODE: STATE_UNKNOWN,
+        	MODEL: STATE_UNKNOWN,
+        	SYSFW: STATE_UNKNOWN,
+        	TEMPERATURE: STATE_UNKNOWN,
         }
 
-    def _write_read(self, msg):
+    def _write_read(self, msg: str) -> str:
         """Write to the projector and read the return."""
-
         ret = ""
         # Sometimes the projector won't answer for no reason or the projector
         # was disconnected during runtime.
@@ -106,9 +111,8 @@ class BenQSwitch(SwitchEntity):
         try:
             if not self.ser.is_open:
                 self.ser.open()
-            msg = msg.encode("ascii")
             self.ser.reset_input_buffer()
-            self.ser.write(msg)
+            self.ser.write(msg.encode("utf-8"))
             # Size is an experience value there is no real limit.
             # AFAIK there is no limit and no end character so we will usually
             # need to wait for timeout
@@ -122,64 +126,40 @@ class BenQSwitch(SwitchEntity):
         self.ser.close()
         return ret
 
-    def _write_read_format(self, msg):
+    def _write_read_format(self, msg: str) -> str:
         """Write msg, obtain answer and format output."""
         # answers are formatted as ***\answer\r***
         awns = self._write_read(msg)
-        _LOGGER.error("awns IN is: %s", repr(awns))
-        match = re.search(r"=(.+)#", awns)
-        if match:
+        if match := re.search(r"=(.+)#", awns):
             return match.group(1)
         return STATE_UNKNOWN
 
-    @property
-    def available(self):
-        """Return if projector is available."""
-        return self._available
-
-    @property
-    def name(self):
-        """Return name of the projector."""
-        return self._name
-
-    @property
-    def is_on(self):
-        """Return if the projector is turned on."""
-        return self._state
-
-    @property
-    def state_attributes(self):
-        """Return state attributes."""
-        return self._attributes
-
-    def update(self):
+    def update(self) -> None:
         """Get the latest state from the projector."""
-        msg = CMD_DICT[LAMP]
-        awns = self._write_read_format(msg)
-        _LOGGER.error("awns OUT is: %s", repr(awns))
+        awns = self._write_read_format(CMD_DICT[POWER_STATUS])
         if awns == "ON":
-            self._state = True
-            self._available = True
+            self._attr_is_on = True
+            self._attr_available = True
         elif awns == "OFF":
-            self._state = False
-            self._available = True
+            self._attr_is_on = False
+            self._attr_available = True
         else:
-            self._available = False
+            self._attr_available = False
 
         for key in self._attributes:
-            msg = CMD_DICT.get(key)
-            if msg:
+            if msg := CMD_DICT.get(key):
                 awns = self._write_read_format(msg)
                 self._attributes[key] = awns
+        self._attr_extra_state_attributes = self._attributes
 
-    def turn_on(self, **kwargs):
+    def turn_on(self, **kwargs: Any) -> None:
         """Turn the projector on."""
         msg = CMD_DICT[STATE_ON]
         self._write_read(msg)
-        self._state = STATE_ON
+        self._attr_is_on = True
 
-    def turn_off(self, **kwargs):
+    def turn_off(self, **kwargs: Any) -> None:
         """Turn the projector off."""
         msg = CMD_DICT[STATE_OFF]
         self._write_read(msg)
-        self._state = STATE_OFF
+        self._attr_is_on = False
