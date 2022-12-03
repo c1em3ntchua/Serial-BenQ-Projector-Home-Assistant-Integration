@@ -27,20 +27,31 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from .const import (
     CONF_BAUDRATE,
     CONF_WRITE_TIMEOUT,
+    
     DEFAULT_NAME,
     DEFAULT_TIMEOUT,
     DEFAULT_WRITE_TIMEOUT,
     DEFAULT_BAUDRATE,
+    
     POWER_STATUS,
-    CURRENT_SOURCE,
+    
+    SOURCE_HDMI1,
+    SOURCE_HDMI2,
+    SOURCE_HDMI3,
+    SOURCE_CURRENT,
+    
     LAMP_HOURS,
     LAMP_MODE,
+    
     MODEL,
     SYSFW,
     TEMPERATURE,
+    
     ICON,
     CMD_DICT,
 )
+
+DEFAULT_BAUDRATE = 115200
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,7 +96,7 @@ class BenQSwitch(SwitchEntity):
         timeout: int,
         write_timeout: int,
     ) -> None:
-        """Init of the Acer projector."""
+        """Init of the BenQ projector."""
         self.ser = serial.Serial(
             port=serial_port, baudrate=baudrate, timeout=timeout, write_timeout=write_timeout
         )
@@ -94,7 +105,7 @@ class BenQSwitch(SwitchEntity):
         self._attr_name = name
         self._attributes = {
         	POWER_STATUS: STATE_UNKNOWN,
-        	CURRENT_SOURCE: STATE_UNKNOWN,
+        	SOURCE_CURRENT: STATE_UNKNOWN,
             LAMP_HOURS: STATE_UNKNOWN,
             LAMP_MODE: STATE_UNKNOWN,
         	MODEL: STATE_UNKNOWN,
@@ -149,6 +160,8 @@ class BenQSwitch(SwitchEntity):
         for key in self._attributes:
             if msg := CMD_DICT.get(key):
                 awns = self._write_read_format(msg)
+                if (TEMPERATURE in key) and (awns.isnumeric()):
+                    awns = str(float(awns) / 10)
                 self._attributes[key] = awns
         self._attr_extra_state_attributes = self._attributes
 
@@ -163,3 +176,18 @@ class BenQSwitch(SwitchEntity):
         msg = CMD_DICT[STATE_OFF]
         self._write_read(msg)
         self._attr_is_on = False
+
+    def switch_source_hdmi1(self, **kwargs: Any) -> None:
+        """Turn the projector off."""
+        msg = CMD_DICT[SOURCE_HDMI1]
+        self._write_read(msg)
+
+    def switch_source_hdmi2(self, **kwargs: Any) -> None:
+        """Turn the projector off."""
+        msg = CMD_DICT[SOURCE_HDMI2]
+        self._write_read(msg)
+
+    def switch_source_hdmi3(self, **kwargs: Any) -> None:
+        """Turn the projector off."""
+        msg = CMD_DICT[SOURCE_HDMI3]
+        self._write_read(msg)
